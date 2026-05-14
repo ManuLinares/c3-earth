@@ -199,6 +199,9 @@ fn void main()
 	pins.init(mem);
 	defer pins.free();
 
+	double last_sun_update = -1.0;
+	Vec3 sun_pos_cache;
+
 	while (!rl::window_should_close())
 	{
 		foreach (RLKeyboardKey i, city : City::values)
@@ -212,27 +215,26 @@ fn void main()
 		float dt = math::min(rl::get_frame_time(), 0.1f);
 		cam.update(dt);
 
-		DateTime now    = datetime::from_time_tz(time::now(), 0).date_time;
-		float hours_utc = now.hour + now.min / 60.0f + now.sec / 3600.0f; // At 12:00 UTC, the sun is roughly at the Prime Meridian (yaw = PI/2)
-		// Dynamic Equation of Time and Declination (Wikipedia Approximation)
-
-		float n         = now.year_day;
-		// D is the day angle in radians
-
-		float d_angle   = 6.24004077f + 0.01720197f * (n - 1.0f);
-
-		// Equation of Time in minutes: Wikipedia formula
-		float eot       = -7.659f * math::sin(d_angle) + 9.863f * math::sin(2.0f * d_angle + 3.5932f);
-		float eot_hours =  eot / 60.0f;
-
-		float sun_yaw = (float)math::PI / 2.0f + (hours_utc + eot_hours - 12.0f) * ((float)math::PI / 12.0f) + SUN_GEO_ADJUSTMENT;
-
-		// Declination formula using the same day angle
-		float b           = 2.0f * (float)math::PI * (n - 81.0f) / 365.0f;
-		float declination = 23.45f * rl::DEG2RAD * math::sin(b);
-
-		Vec3 sun_pos = { 1000.0f * math::cos(declination) * math::cos(sun_yaw), 1000.0f * math::sin(declination), 1000.0f * math::cos(declination) * math::sin(sun_yaw) };
-		shader.set_value(sun_pos_loc, &sun_pos, VEC3);
+		if (rl::get_time() - last_sun_update > 1.0)
+		{
+			DateTime now    = datetime::from_time_tz(time::now(), 0).date_time;
+            // At 12:00 UTC, the sun is roughly at the Prime Meridian (yaw = PI/2)
+			float hours_utc = now.hour + now.min / 60.0f + now.sec / 3600.0f;
+			// # Dynamic Equation of Time and Declination (Wikipedia Approximation)
+			float n         = now.year_day;
+		    // D is the day angle in radians
+			float d_angle   = 6.24004077f + 0.01720197f * (n - 1.0f);
+			// Equation of Time in minutes: Wikipedia formula
+			float eot       = -7.659f * math::sin(d_angle) + 9.863f * math::sin(2.0f * d_angle + 3.5932f);
+			float eot_hours =  eot / 60.0f;
+			float sun_yaw = (float)math::PI / 2.0f + (hours_utc + eot_hours - 12.0f) * ((float)math::PI / 12.0f) + SUN_GEO_ADJUSTMENT;
+			// Declination formula using the same day angle
+			float b           = 2.0f * (float)math::PI * (n - 81.0f) / 365.0f;
+			float declination = 23.45f * rl::DEG2RAD * math::sin(b);
+			sun_pos_cache = { 1000.0f * math::cos(declination) * math::cos(sun_yaw), 1000.0f * math::sin(declination), 1000.0f * math::cos(declination) * math::sin(sun_yaw) };
+			last_sun_update = rl::get_time();
+		}
+		shader.set_value(sun_pos_loc, &sun_pos_cache, VEC3);
 
 		RLRay ray                = rl::get_screen_to_world_ray(rl::get_mouse_position(), cam.camera_3d);
 		RLRayCollision collision = ray.get_collision_sphere({ 0, 0, 0 }, EARTH_RADIUS);
@@ -283,13 +285,13 @@ fn void main()
 				rl::draw_text(rl::text_format("%d: %s", $city.ordinal + 1, $city.name), Ui.MARGIN, Ui.LIST_OFFSET + $city.ordinal * Ui.LINE_HEIGHT, Ui.FONT_SIZE, ui_white);
 			$endforeach
 
-			if (true) rl::draw_text(
-				rl::text_format("FPS: %d", rl::get_fps()),
-				Ui.MARGIN + rl::get_screen_width() - 140,
-				rl::get_screen_height() - (Ui.MARGIN + 10),
-				Ui.FONT_SIZE,
-				rl::SKYBLUE
-			);
+			// if (false) rl::draw_text(
+			// 	rl::text_format("FPS: %d", rl::get_fps()),
+			// 	Ui.MARGIN + rl::get_screen_width() - 140,
+			// 	rl::get_screen_height() - (Ui.MARGIN + 10),
+			// 	Ui.FONT_SIZE,
+			// 	rl::SKYBLUE
+			// );
 		};
 	}
 }
