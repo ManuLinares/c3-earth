@@ -21,7 +21,7 @@ constdef Ui : inline int
 
 enum City : int (float lat, float lon, ZString name)
 {
-	STOCKHOLM    { 59.3f, 18.1f, "Stockholm" },
+	SALA         { 59.9f, 16.5f, "Sala, Sweden" },
 	BUENOS_AIRES { -34.6f, -58.4f, "Buenos Aires" },
 	TOKYO        { 35.7f, 139.7f, "Tokyo" },
 	DELHI        { 28.6f, 77.2f, "Delhi" },
@@ -141,11 +141,11 @@ fn void GlobeCamera.jump_to(&self, City city)
 	float diff = self.target.yaw - self.start.yaw;
 	if (diff > math::PI)
 	{
-		self.start.yaw += 2.0f * math::PI;
+		self.start.yaw += math::TAU;
 	}
 	else if (diff < -math::PI)
 	{
-		self.start.yaw -= 2.0f * math::PI;
+		self.start.yaw -= math::TAU;
 	}
 
 	self.anim_timer = 0.0f;
@@ -335,8 +335,7 @@ void main() {
 }
 `;
 
-const ZString EARTH_VERTEX_SHADER @if(!env::EMSCRIPTEN) = `
-#version 330
+const ZString EARTH_VERTEX_SHADER @if(!env::EMSCRIPTEN) = `#version 330
 in vec3 vertexPosition;
 uniform mat4 mvp;
 uniform mat4 matModel;
@@ -347,8 +346,7 @@ void main() {
 }
 `;
 
-const ZString EARTH_FRAGMENT_SHADER @if(!env::EMSCRIPTEN) = `
-#version 330
+const ZString EARTH_FRAGMENT_SHADER @if(!env::EMSCRIPTEN) = `#version 330
 in vec3 fragPos;
 uniform sampler2D texture0;
 uniform vec3 sunPos;
@@ -371,3 +369,6 @@ void main() {
     finalColor = vec4(tex.rgb * diff, 1.0);
 }
 `;
+
+module std::math; // we can even extend stdlib modules
+const TAU = math::PI * 2;
