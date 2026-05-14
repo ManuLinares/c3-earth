@@ -59,8 +59,8 @@ fn Vec3 spherical_to_vec3(float yaw, float pitch, float radius)
 fn void GlobeCamera.init(&self)
 {
 	*self = {
-		.target = { .yaw = (float)math::PI / 2.0f - (-30.0f * rl::DEG2RAD), .pitch = 20.0f * rl::DEG2RAD, .radius = 12.0f },
-		.current = { .yaw = (float)math::PI / 2.0f - (-30.0f * rl::DEG2RAD), .pitch = 20.0f * rl::DEG2RAD, .radius = 12.0f },
+		.target = { .yaw = math::HALF_PI - (-30.0f * rl::DEG2RAD), .pitch = 20.0f * rl::DEG2RAD, .radius = 12.0f },
+		.current = { .yaw = math::HALF_PI - (-30.0f * rl::DEG2RAD), .pitch = 20.0f * rl::DEG2RAD, .radius = 12.0f },
 		.camera_3d = { .up = { 0, 1, 0 }, .fovy = 45, .projection = PERSPECTIVE },
 		.anim_timer = CAMERA_ANIM_DURATION,
 		.vel = { 0, 0 }
@@ -135,7 +135,7 @@ fn void GlobeCamera.jump_to(&self, City city)
 {
 	self.start = self.current;
 	self.target.pitch = city.lat * rl::DEG2RAD;
-	self.target.yaw = (float)math::PI / 2.0f - (city.lon * rl::DEG2RAD);
+	self.target.yaw = math::HALF_PI - (double)(city.lon * rl::DEG2RAD);
 	self.target.radius = 5.0f;
 
 	float diff = self.target.yaw - self.start.yaw;
@@ -227,7 +227,7 @@ fn void main()
 			// Equation of Time in minutes: Wikipedia formula
 			float eot       = -7.659f * math::sin(d_angle) + 9.863f * math::sin(2.0f * d_angle + 3.5932f);
 			float eot_hours =  eot / 60.0f;
-			float sun_yaw = (float)math::PI / 2.0f + (hours_utc + eot_hours - 12.0f) * ((float)math::PI / 12.0f) + SUN_GEO_ADJUSTMENT;
+			float sun_yaw = (float)math::HALF_PI + (hours_utc + eot_hours - 12.0f) * ((float)math::PI / 12.0f) + SUN_GEO_ADJUSTMENT;
 			// Declination formula using the same day angle
 			float b           = 2.0f * (float)math::PI * (n - 81.0f) / 365.0f;
 			float declination = 23.45f * rl::DEG2RAD * math::sin(b);
@@ -256,7 +256,7 @@ fn void main()
 				rl::draw_model(model, { 0, 0, 0 }, 1.0f, rl::GRAY);
 				foreach (p : pins)
 				{
-					Vec3 base = spherical_to_vec3((float)math::PI / 2.0f - (p.lon * rl::DEG2RAD), p.lat * rl::DEG2RAD, EARTH_RADIUS);
+					Vec3 base = spherical_to_vec3((float)math::HALF_PI - (p.lon * rl::DEG2RAD), p.lat * rl::DEG2RAD, EARTH_RADIUS);
 					Vec3 head = base * 1.03f;
 					rl::draw_cylinder_ex(base, head, 0.01f, 0.01f, 8, rl::WHITE);
 					rl::draw_sphere(head, 0.03f, rl::RED);
