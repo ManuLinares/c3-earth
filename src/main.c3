@@ -2,13 +2,14 @@ module main;
 import raylib6::rl;
 import std;
 
-const String EARTH_TEXTURE          = "resources/img/earth_4k_quant.png";
-const String STARMAP_TEXTURE        = "resources/img/starmap.png";
-const float EARTH_RADIUS            = 3.0f;
-const float CAMERA_SETTLE_THRESHOLD = 0.5f * rl::DEG2RAD;
-const float CAMERA_LERP_SPEED       = 10.0f;
-const float CAMERA_ZOOM_SPEED       = 10.0f;
-const float CAMERA_ANIM_DURATION    = 1.0f;
+const String EARTH_TEXTURE          =  "resources/img/earth_4k_quant.png";
+const String STARMAP_TEXTURE        =  "resources/img/starmap.png";
+const float EARTH_RADIUS            =  3.0f;
+const float CAMERA_SETTLE_THRESHOLD =  0.5f * rl::DEG2RAD;
+const float CAMERA_LERP_SPEED       =  10.0f;
+const float CAMERA_ZOOM_SPEED       =  10.0f;
+const float CAMERA_ANIM_DURATION    =  1.0f;
+const float SUN_GEO_ADJUSTMENT      = -15.0f * rl::DEG2RAD; // 1-hour offset adjustment
 
 constdef Ui : inline int
 {
@@ -159,7 +160,7 @@ struct Pin
 fn void main()
 {
 	rl::set_config_flags(WINDOW_RESIZABLE | MSAA_4X_HINT);
-	rl::init_window(1024, 768, "C3 Earth Explorer");
+	rl::init_window(1024, 600, "C3 Earth Explorer");
 	defer rl::close_window();
 	rl::set_target_fps(60);
 
@@ -191,6 +192,9 @@ fn void main()
 	skybox.materials[0].shader = shader;
 	skybox.materials[0].maps[RLMaterialMapIndex.ALBEDO].texture = star_tex;
 
+	int sun_pos_loc   = shader.get_location("sunPos");
+	int is_skybox_loc = shader.get_location("isSkybox");
+
 	List{Pin} pins;
 	pins.init(mem);
 	defer pins.free();
@@ -208,6 +212,28 @@ fn void main()
 		float dt = math::min(rl::get_frame_time(), 0.1f);
 		cam.update(dt);
 
+		DateTime now    = datetime::from_time_tz(time::now(), 0).date_time;
+		float hours_utc = now.hour + now.min / 60.0f + now.sec / 3600.0f; // At 12:00 UTC, the sun is roughly at the Prime Meridian (yaw = PI/2)
+		// Dynamic Equation of Time and Declination (Wikipedia Approximation)
+
+		float n         = now.year_day;
+		// D is the day angle in radians
+
+		float d_angle   = 6.24004077f + 0.01720197f * (n - 1.0f);
+
+		// Equation of Time in minutes: Wikipedia formula
+		float eot       = -7.659f * math::sin(d_angle) + 9.863f * math::sin(2.0f * d_angle + 3.5932f);
+		float eot_hours =  eot / 60.0f;
+
+		float sun_yaw = (float)math::PI / 2.0f + (hours_utc + eot_hours - 12.0f) * ((float)math::PI / 12.0f) + SUN_GEO_ADJUSTMENT;
+
+		// Declination formula using the same day angle
+		float b           = 2.0f * (float)math::PI * (n - 81.0f) / 365.0f;
+		float declination = 23.45f * rl::DEG2RAD * math::sin(b);
+
+		Vec3 sun_pos = { 1000.0f * math::cos(declination) * math::cos(sun_yaw), 1000.0f * math::sin(declination), 1000.0f * math::cos(declination) * math::sin(sun_yaw) };
+		shader.set_value(sun_pos_loc, &sun_pos, VEC3);
+
 		RLRay ray                = rl::get_screen_to_world_ray(rl::get_mouse_position(), cam.camera_3d);
 		RLRayCollision collision = ray.get_collision_sphere({ 0, 0, 0 }, EARTH_RADIUS);
 
@@ -218,9 +244,13 @@ fn void main()
 			rl::@mode3d(cam.camera_3d)
 			{
 				rl::gl_disable_backface_culling();
+				int sky_val = 1;
+				shader.set_value(is_skybox_loc, &sky_val, INT);
 				rl::draw_model(skybox, { 0, 0, 0 }, 1.0f, rl::WHITE);
 				rl::gl_enable_backface_culling();
 
+				int earth_val = 0;
+				shader.set_value(is_skybox_loc, &earth_val, INT);
 				rl::draw_model(model, { 0, 0, 0 }, 1.0f, rl::GRAY);
 				foreach (p : pins)
 				{
@@ -252,6 +282,14 @@ fn void main()
 			$foreach $city : City::values:
 				rl::draw_text(rl::text_format("%d: %s", $city.ordinal + 1, $city.name), Ui.MARGIN, Ui.LIST_OFFSET + $city.ordinal * Ui.LINE_HEIGHT, Ui.FONT_SIZE, ui_white);
 			$endforeach
+
+			if (true) rl::draw_text(
+				rl::text_format("FPS: %d", rl::get_fps()),
+				Ui.MARGIN + rl::get_screen_width() - 140,
+				rl::get_screen_height() - (Ui.MARGIN + 10),
+				Ui.FONT_SIZE,
+				rl::SKYBLUE
+			);
 		};
 	}
 }
@@ -274,12 +312,24 @@ const ZString EARTH_FRAGMENT_SHADER @if(env::EMSCRIPTEN) = `#version 300 es
 precision highp float;
 in vec3 fragPos;
 uniform sampler2D texture0;
+uniform vec3 sunPos;
+uniform int isSkybox;
 out vec4 finalColor;
 const float PI = radians(180.0);
 void main() {
     vec3 p = normalize(fragPos);
     vec2 uv = vec2(0.5 + atan(p.x, p.z) / (2.0 * PI), 0.5 - asin(p.y) / PI);
-    finalColor = texture(texture0, uv);
+    vec4 tex = texture(texture0, uv);
+    vec3 lightDir = normalize(sunPos);
+    if (isSkybox != 0) {
+        float angle = dot(p, lightDir);
+        float sunEffect = smoothstep(0.9995, 1.0, angle);
+        vec3 sunColor = vec3(1.0, 0.96, 0.7) * sunEffect * 1.5;
+        finalColor = vec4(tex.rgb + sunColor, 1.0);
+        return;
+    }
+    float diff = max(dot(p, lightDir), 0.05);
+    finalColor = vec4(tex.rgb * diff, 1.0);
 }
 `;
 
@@ -299,11 +349,23 @@ const ZString EARTH_FRAGMENT_SHADER @if(!env::EMSCRIPTEN) = `
 #version 330
 in vec3 fragPos;
 uniform sampler2D texture0;
+uniform vec3 sunPos;
+uniform int isSkybox;
 out vec4 finalColor;
 const float PI = 3.14159265359;
 void main() {
     vec3 p = normalize(fragPos);
     vec2 uv = vec2(0.5 + atan(p.x, p.z) / (2.0 * PI), 0.5 - asin(p.y) / PI);
-    finalColor = texture(texture0, uv);
+    vec4 tex = texture(texture0, uv);
+    vec3 lightDir = normalize(sunPos);
+    if (isSkybox != 0) {
+        float angle = dot(p, lightDir);
+        float sunEffect = smoothstep(0.9995, 1.0, angle);
+        vec3 sunColor = vec3(1.0, 0.96, 0.7) * sunEffect * 1.5;
+        finalColor = vec4(tex.rgb + sunColor, 1.0);
+        return;
+    }
+    float diff = max(dot(p, lightDir), 0.2);
+    finalColor = vec4(tex.rgb * diff, 1.0);
 }
 `;

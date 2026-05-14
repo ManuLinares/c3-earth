@@ -1,11 +1,7 @@
 {
-  "langrev": "1",
-  "warnings":  [ "no-unused" ],
   "dependency-search-paths":  [ "lib" ],
   "dependencies":  [ "raylib6" ],
-  "version": "0.1.0",
   "sources":  [ "src/**" ],
-  "test-sources":  [ "test/**" ],
   "build-dir": "build",
   "output": "build",
   "targets": {
@@ -16,10 +12,10 @@
       "name": "index.html",
       "target": "emscripten",
       "type": "executable",
-      "opt": "O3",
+      "opt": "Oz",
       "debug-info": "none",
       "link-args": [
-        "-O3",
+        "-Oz",
         "--preload-file resources/img@resources/img",
         "-sASYNCIFY",
         "-sALLOW_MEMORY_GROWTH=1",
@@ -28,7 +24,8 @@
       ]
     }
   },
-  "cpu": "generic",
-  "opt": "O0",
-  "debug-info": "full"
+  "cpu": "native",
+  "opt": "Oz",
+  "debug-info": "none",
+  "link-args": ["-s"]
 }
