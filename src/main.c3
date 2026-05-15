@@ -194,6 +194,7 @@ fn void main()
 
 	int sun_pos_loc   = shader.get_location("sunPos");
 	int is_skybox_loc = shader.get_location("isSkybox");
+	int sun_fade_loc  = shader.get_location("sunFade");
 
 	List{Pin} pins;
 	pins.init(mem);
@@ -214,6 +215,8 @@ fn void main()
 
 		float dt = math::min(rl::get_frame_time(), 0.1f);
 		cam.update(dt);
+		float sun_fade = math::clamp((cam.current.radius - 4.5f) / 2.5f, 0.0f, 1.0f);
+		shader.set_value(sun_fade_loc, &sun_fade, FLOAT);
 
 		if (rl::get_time() - last_sun_update > 1.0)
 		{
@@ -316,6 +319,7 @@ in vec3 fragPos;
 uniform sampler2D texture0;
 uniform vec3 sunPos;
 uniform int isSkybox;
+uniform float sunFade;
 out vec4 finalColor;
 const float PI = radians(180.0);
 void main() {
@@ -326,12 +330,13 @@ void main() {
     if (isSkybox != 0) {
         float angle = dot(p, lightDir);
         float sunEffect = smoothstep(0.9995, 1.0, angle);
-        vec3 sunColor = vec3(1.0, 0.96, 0.7) * sunEffect * 1.5;
+        vec3 sunColor = vec3(1.0, 0.96, 0.7) * sunEffect * 1.5 * sunFade;
         finalColor = vec4(tex.rgb + sunColor, 1.0);
         return;
     }
     float diff = max(dot(p, lightDir), 0.05);
-    finalColor = vec4(tex.rgb * diff, 1.0);
+    float finalDiff = mix(1.0, diff, sunFade);
+    finalColor = vec4(tex.rgb * finalDiff, 1.0);
 }
 `;
 
@@ -351,6 +356,7 @@ in vec3 fragPos;
 uniform sampler2D texture0;
 uniform vec3 sunPos;
 uniform int isSkybox;
+uniform float sunFade;
 out vec4 finalColor;
 const float PI = 3.14159265359;
 void main() {
@@ -361,12 +367,13 @@ void main() {
     if (isSkybox != 0) {
         float angle = dot(p, lightDir);
         float sunEffect = smoothstep(0.9995, 1.0, angle);
-        vec3 sunColor = vec3(1.0, 0.96, 0.7) * sunEffect * 1.5;
+        vec3 sunColor = vec3(1.0, 0.96, 0.7) * sunEffect * 1.5 * sunFade;
         finalColor = vec4(tex.rgb + sunColor, 1.0);
         return;
     }
     float diff = max(dot(p, lightDir), 0.2);
-    finalColor = vec4(tex.rgb * diff, 1.0);
+    float finalDiff = mix(1.0, diff, sunFade);
+    finalColor = vec4(tex.rgb * finalDiff, 1.0);
 }
 `;
 
