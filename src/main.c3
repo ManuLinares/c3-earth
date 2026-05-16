@@ -376,6 +376,3 @@ void main() {
     finalColor = vec4(tex.rgb * finalDiff, 1.0);
 }
 `;
-
-module std::math; // we can even extend stdlib modules
-const TAU = math::PI * 2;

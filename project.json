@@ -1,21 +1,22 @@
 {
+  // Global options for all targets
   "dependency-search-paths":  [ "lib" ],
   "dependencies":  [ "raylib6" ],
   "sources":  [ "src/**" ],
   "build-dir": "build",
   "output": "build",
+
+  // We can override specific target options
   "targets": {
-    "c3_earth": {
-      "type": "executable"
+    "default_whatever_name": { // the first one is what `c3c build` defaults to
+      "type": "executable",
+      "name": "c3_earth"
     },
     "web": {
+      "type": "executable",
       "name": "index.html",
       "target": "emscripten",
-      "type": "executable",
-      "opt": "Oz",
-      "debug-info": "none",
       "link-args": [
-        "-Oz",
         "--preload-file resources/img@resources/img",
         "-sASYNCIFY",
         "-sALLOW_MEMORY_GROWTH=1",
@@ -23,9 +24,5 @@
         "--shell-file resources/minshell.html"
       ]
     }
-  },
-  "cpu": "native",
-  "opt": "Oz",
-  "debug-info": "none",
-  "link-args": ["-s"]
+  }
 }
