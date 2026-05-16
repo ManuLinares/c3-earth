@@ -2,17 +2,26 @@ module main;
 import raylib6::rl;
 import std;
 
-const String EARTH_TEXTURE          =  "resources/img/earth.png";
-const String STARMAP_TEXTURE        =  "resources/img/starmap.png";
+const String EARTH_TEXTURE =  "resources/img/earth.png";
+const String STARMAP_TEXTURE =  "resources/img/starmap.png";
 // Downloaded from https://www.solarsystemscope.com/textures
 
-const float EARTH_RADIUS            =  3.0f;
-const float CAMERA_SETTLE_THRESHOLD =  0.5f * rl::DEG2RAD;
-const float CAMERA_LERP_SPEED       =  10.0f;
-const float CAMERA_ZOOM_SPEED       =  10.0f;
-const float CAMERA_ANIM_DURATION    =  1.0f;
-const float SUN_GEO_ADJUSTMENT      = -15.0f * rl::DEG2RAD; // 1-hour offset adjustment
+// C3 enums can carry associated data. Each variant here holds a latitude, longitude, and a name.
+enum City : int (float lat, float lon, ZString name)
+{
+	SALA         { 59.9f,   16.5f,  "Sala, Sweden" },
+	BUENOS_AIRES { -34.6f, -58.4f,  "Buenos Aires" },
+	TOKYO        { 35.7f,   139.7f, "Tokyo" },
+	DELHI        { 28.6f,   77.2f,  "Delhi" },
+	SHANGHAI     { 31.2f,   121.5f, "Shanghai" },
+	SAO_PAULO    { -23.5f, -46.6f,  "Sao Paulo" },
+	MEXICO       { 19.4f,  -99.1f,  "Mexico City" },
+	CAIRO        { 30.0f,   31.2f,  "Cairo" },
+	MUMBAI       { 19.1f,   72.9f,  "Mumbai" },
+}
 
+// C3's 'constdef' defines typed constants. Unlike standard C3 enums (which must be
+// strictly sequential starting from 0), constdefs allow arbitrary values and gaps.
 constdef Ui : inline int
 {
 	MARGIN      = 20,
@@ -21,19 +30,14 @@ constdef Ui : inline int
 	LINE_HEIGHT = 25
 }
 
-enum City : int (float lat, float lon, ZString name)
-{
-	SALA         { 59.9f, 16.5f, "Sala, Sweden" },
-	BUENOS_AIRES { -34.6f, -58.4f, "Buenos Aires" },
-	TOKYO        { 35.7f, 139.7f, "Tokyo" },
-	DELHI        { 28.6f, 77.2f, "Delhi" },
-	SHANGHAI     { 31.2f, 121.5f, "Shanghai" },
-	SAO_PAULO    { -23.5f, -46.6f, "Sao Paulo" },
-	MEXICO       { 19.4f, -99.1f, "Mexico City" },
-	CAIRO        { 30.0f, 31.2f, "Cairo" },
-	MUMBAI       { 19.1f, 72.9f, "Mumbai" },
-}
+const float EARTH_RADIUS            =  3.0f;
+const float CAMERA_SETTLE_THRESHOLD =  0.5f * rl::DEG2RAD;
+const float CAMERA_LERP_SPEED       =  10.0f;
+const float CAMERA_ZOOM_SPEED       =  10.0f;
+const float CAMERA_ANIM_DURATION    =  1.0f;
+const float SUN_GEO_ADJUSTMENT      = -15.0f * rl::DEG2RAD; // 15 degrees = 1 hour of Earth rotation
 
+// Represents the camera's position orbiting around the earth
 struct SphericalCoord
 {
 	float yaw;
@@ -41,6 +45,8 @@ struct SphericalCoord
 	float radius;
 }
 
+// The state of our camera. We keep track of a target and current coordinate
+// for smooth interpolation (lerping) and handle mouse drag velocity.
 struct GlobeCamera
 {
 	SphericalCoord target;
@@ -52,25 +58,26 @@ struct GlobeCamera
 	Vec2 vel;
 }
 
-fn Vec3 spherical_to_vec3(float yaw, float pitch, float radius)
-{
-	float cos_pitch = math::cos(pitch);
-	return radius * (Vec3) { cos_pitch * math::cos(yaw), math::sin(pitch), cos_pitch * math::sin(yaw) };
-}
-
+// C3 allows attaching methods to structs using the `StructName.method_name` syntax.
+// The first parameter is a pointer to the struct, named `self` by convention.
 fn void GlobeCamera.init(&self)
 {
+	SphericalCoord initial_pos = { .yaw = math::HALF_PI - (-30.0f * rl::DEG2RAD), .pitch = 20.0f * rl::DEG2RAD, .radius = 12.0f };
+
+	// We use designated initializers (the dot syntax) to cleanly set up the struct fields
 	*self = {
-		.target = { .yaw = math::HALF_PI - (-30.0f * rl::DEG2RAD), .pitch = 20.0f * rl::DEG2RAD, .radius = 12.0f },
-		.current = { .yaw = math::HALF_PI - (-30.0f * rl::DEG2RAD), .pitch = 20.0f * rl::DEG2RAD, .radius = 12.0f },
+		.target = initial_pos,
+		.current = initial_pos,
 		.camera_3d = { .up = { 0, 1, 0 }, .fovy = 45, .projection = PERSPECTIVE },
 		.anim_timer = CAMERA_ANIM_DURATION,
-		.vel = { 0, 0 }
+		.vel= { 0, 0 }
 	};
 }
 
+// The main update loop for the camera, called every frame
 fn void GlobeCamera.update(&self, float dt)
 {
+	// 1. Handle zooming via mouse wheel
 	float wheel = math::sign((int)rl::get_mouse_wheel_move());
 
 	if (wheel)
@@ -79,6 +86,7 @@ fn void GlobeCamera.update(&self, float dt)
 	}
 	self.current.radius += (self.target.radius - self.current.radius) * CAMERA_ZOOM_SPEED * dt;
 
+	// 2. Check if we clicked on the Earth (Raycasting)
 	if (rl::is_mouse_button_pressed(LEFT))
 	{
 		RLRay ray = rl::get_screen_to_world_ray(rl::get_mouse_position(), self.camera_3d);
@@ -91,51 +99,56 @@ fn void GlobeCamera.update(&self, float dt)
 		}
 	}
 
-	if (rl::is_mouse_button_released(LEFT))
+	if (rl::is_mouse_button_released(LEFT)) self.dragging = false;
+
+	// 3. Handle camera rotation based on state
+	switch
 	{
-		self.dragging = false;
+		case self.dragging:
+			// Calculate how much 1 pixel of mouse movement represents in radians based on current zoom
+			Vec2 delta            = rl::get_mouse_delta();
+			float dist_to_surface = self.current.radius - EARTH_RADIUS;
+			float viewport_height = 2.0f * dist_to_surface * math::tan(self.camera_3d.fovy * 0.5f * rl::DEG2RAD);
+			float angle_per_pixel = viewport_height / rl::get_screen_height() / EARTH_RADIUS;
+
+			// We divide by cos(pitch) so dragging near the poles feels consistent
+			self.vel = { delta.x * angle_per_pixel / math::max(0.1f, math::cos(self.current.pitch)), delta.y * angle_per_pixel };
+
+			self.target.yaw += self.vel.x;
+			self.target.pitch = math::clamp(self.target.pitch + self.vel.y, -1.5f, 1.5f);
+			self.current.yaw = self.target.yaw;
+			self.current.pitch = self.target.pitch;
+
+		case self.anim_timer < CAMERA_ANIM_DURATION:
+			// Smoothly animate the camera jumping to a new city
+			self.anim_timer += dt;
+			float t       = math::min(self.anim_timer / CAMERA_ANIM_DURATION, 1.0f);
+			float eased_t = t * t * (3.0f - 2.0f * t); // Smoothstep easing
+			self.current.yaw = self.start.yaw + (self.target.yaw - self.start.yaw) * eased_t;
+			self.current.pitch = self.start.pitch + (self.target.pitch - self.start.pitch) * eased_t;
+			self.current.radius = self.start.radius + (self.target.radius - self.start.radius) * eased_t;
+			self.vel = { 0, 0 };
+
+		default:
+			// Apply inertia/momentum after releasing the mouse
+			self.target.yaw += self.vel.x;
+			self.target.pitch = math::clamp(self.target.pitch + self.vel.y, -1.5f, 1.5f);
+			self.vel *= math::pow(0.8f, dt * 60.0f); // Friction
+
+			// Lerp the camera towards the target position
+			self.current.yaw += (self.target.yaw - self.current.yaw) * CAMERA_LERP_SPEED * dt;
+			self.current.pitch += (self.target.pitch - self.current.pitch) * CAMERA_LERP_SPEED * dt;
 	}
 
-	if (self.dragging)
-	{
-		Vec2 delta            = rl::get_mouse_delta();
-		float dist_to_surface = self.current.radius - EARTH_RADIUS;
-		float viewport_height = 2.0f * dist_to_surface * math::tan(self.camera_3d.fovy * 0.5f * rl::DEG2RAD);
-		float angle_per_pixel = viewport_height / rl::get_screen_height() / EARTH_RADIUS;
-
-		self.vel = { delta.x * angle_per_pixel / math::max(0.1f, math::cos(self.current.pitch)), delta.y * angle_per_pixel };
-
-		self.target.yaw += self.vel.x;
-		self.target.pitch = math::clamp(self.target.pitch + self.vel.y, -1.5f, 1.5f);
-		self.current.yaw = self.target.yaw;
-		self.current.pitch = self.target.pitch;
-	}
-	else if (self.anim_timer < CAMERA_ANIM_DURATION)
-	{
-		self.anim_timer += dt;
-		float t       = math::min(self.anim_timer / CAMERA_ANIM_DURATION, 1.0f);
-		float eased_t = t * t * (3.0f - 2.0f * t);
-		self.current.yaw = self.start.yaw + (self.target.yaw - self.start.yaw) * eased_t;
-		self.current.pitch = self.start.pitch + (self.target.pitch - self.start.pitch) * eased_t;
-		self.current.radius = self.start.radius + (self.target.radius - self.start.radius) * eased_t;
-		self.vel = { 0, 0 };
-	}
-	else
-	{
-		self.target.yaw += self.vel.x;
-		self.target.pitch = math::clamp(self.target.pitch + self.vel.y, -1.5f, 1.5f);
-		self.vel *= math::pow(0.8f, dt * 60.0f);
-
-		self.current.yaw += (self.target.yaw - self.current.yaw) * CAMERA_LERP_SPEED * dt;
-		self.current.pitch += (self.target.pitch - self.current.pitch) * CAMERA_LERP_SPEED * dt;
-	}
-
+	// Finally, convert the spherical coordinates back to a 3D position for Raylib
 	self.camera_3d.position = spherical_to_vec3(self.current.yaw, self.current.pitch, self.current.radius);
 }
 
+// Initiates a smooth, animated camera sweep to a specific City's coordinates
 fn void GlobeCamera.jump_to(&self, City city)
 {
 	self.start = self.current;
+
 	self.target.pitch = city.lat * rl::DEG2RAD;
 	self.target.yaw = math::HALF_PI - (double)(city.lon * rl::DEG2RAD);
 	self.target.radius = 5.0f;
@@ -151,6 +164,13 @@ fn void GlobeCamera.jump_to(&self, City city)
 	}
 
 	self.anim_timer = 0.0f;
+}
+
+// A standard free function for math. Converts spherical coordinates to 3D cartesian vectors.
+fn Vec3 spherical_to_vec3(float yaw, float pitch, float radius)
+{
+	float cos_pitch = math::cos(pitch);
+	return radius * (Vec3) { cos_pitch * math::cos(yaw), math::sin(pitch), cos_pitch * math::sin(yaw) };
 }
 
 struct Pin
@@ -207,9 +227,11 @@ fn void main()
 
 	while (!rl::window_should_close())
 	{
-		foreach (RLKeyboardKey i, city : City::values)
+		// C3 lets us easily iterate over enum variants at runtime using `Enum::values`.
+		// We use `idx` as the index, explicitly typed as an RLKeyboardKey for the math.
+		foreach (RLKeyboardKey idx, city : City::values)
 		{
-			if (rl::is_key_pressed(RLKeyboardKey.ONE + i))
+			if (rl::is_key_pressed(RLKeyboardKey.ONE + idx))
 			{
 				cam.jump_to(city);
 			}
@@ -220,22 +242,18 @@ fn void main()
 		float sun_fade = math::clamp((cam.current.radius - 4.5f) / 2.5f, 0.0f, 1.0f);
 		shader.set_value(sun_fade_loc, &sun_fade, FLOAT);
 
+		// Heavy math here taken from wikipedia. We cache the solar coordinates and only recalculate once per second.
 		if (rl::get_time() - last_sun_update > 1.0)
 		{
 			DateTime now    = datetime::from_time_tz(time::now(), 0).date_time;
-            // At 12:00 UTC, the sun is roughly at the Prime Meridian (yaw = PI/2)
 			float hours_utc = now.hour + now.min / 60.0f + now.sec / 3600.0f;
-			// # Dynamic Equation of Time and Declination (Wikipedia Approximation)
-			float n         = now.year_day;
-		    // D is the day angle in radians
-			float d_angle   = 6.24004077f + 0.01720197f * (n - 1.0f);
-			// Equation of Time in minutes: Wikipedia formula
-			float eot       = -7.659f * math::sin(d_angle) + 9.863f * math::sin(2.0f * d_angle + 3.5932f);
-			float eot_hours =  eot / 60.0f;
-			float sun_yaw = (float)math::HALF_PI + (hours_utc + eot_hours - 12.0f) * ((float)math::PI / 12.0f) + SUN_GEO_ADJUSTMENT;
-			// Declination formula using the same day angle
-			float b           = 2.0f * (float)math::PI * (n - 81.0f) / 365.0f;
-			float declination = 23.45f * rl::DEG2RAD * math::sin(b);
+			float day_of_year = now.year_day;
+			float day_angle   = 6.24004077f + 0.01720197f * (day_of_year - 1.0f);
+			float equation_of_time_mins  = -7.659f * math::sin(day_angle) + 9.863f * math::sin(2.0f * day_angle + 3.5932f);
+			float equation_of_time_hours = equation_of_time_mins / 60.0f;
+			float sun_yaw     = (float)math::HALF_PI + (hours_utc + equation_of_time_hours - 12.0f) * ((float)math::PI / 12.0f) + SUN_GEO_ADJUSTMENT;
+			float orbit_angle = 2.0f * (float)math::PI * (day_of_year - 81.0f) / 365.0f;
+			float declination = 23.45f * rl::DEG2RAD * math::sin(orbit_angle);
 			sun_pos_cache = { math::cos(declination) * math::cos(sun_yaw), math::sin(declination), math::cos(declination) * math::sin(sun_yaw) };
 			last_sun_update = rl::get_time();
 		}
@@ -244,10 +262,13 @@ fn void main()
 		RLRay ray                = rl::get_screen_to_world_ray(rl::get_mouse_position(), cam.camera_3d);
 		RLRayCollision collision = ray.get_collision_sphere({ 0, 0, 0 }, EARTH_RADIUS);
 
+		// The `@drawing` trailing block macro automatically wraps the enclosed code
+		// with `BeginDrawing()` and `EndDrawing()`.
 		rl::@drawing()
 		{
 			rl::clear_background(rl::BLACK);
 
+			// Same concept here for `BeginMode3D()` and `EndMode3D()`
 			rl::@mode3d(cam.camera_3d)
 			{
 				rl::gl_disable_backface_culling();
@@ -286,26 +307,22 @@ fn void main()
 			RLColor ui_raywhite = { 245, 245, 245, ui_alpha };
 
 			rl::draw_text("C3 Earth Explorer (Left Click: Rotate, Right Click: Pin, Wheel: Zoom, 1-9: Cities)", Ui.MARGIN, Ui.MARGIN, Ui.FONT_SIZE, ui_raywhite);
+			// C3 also supports compile-time `$foreach` loops.
+			// This generates a separate, hardcoded `draw_text` call for each city during compilation.
 			$foreach $city : City::values:
 				rl::draw_text(rl::text_format("%d: %s", $city.ordinal + 1, $city.name), Ui.MARGIN, Ui.LIST_OFFSET + $city.ordinal * Ui.LINE_HEIGHT, Ui.FONT_SIZE, ui_white);
 			$endforeach
-
-			// if (false) rl::draw_text(
-			// 	rl::text_format("FPS: %d", rl::get_fps()),
-			// 	Ui.MARGIN + rl::get_screen_width() - 140,
-			// 	rl::get_screen_height() - (Ui.MARGIN + 10),
-			// 	Ui.FONT_SIZE,
-			// 	rl::SKYBLUE
-			// );
 		};
 	}
 }
 
 // //////////////// Shaders
 
+// We use `@if` to compile one GLSL version for desktop, and another for the web.
 const String SHADER_PREFIX @if(env::EMSCRIPTEN)  = "#version 300 es\nprecision highp float;\n";
 const String SHADER_PREFIX @if(!env::EMSCRIPTEN) = "#version 330\n";
 
+// The `+++` operator concatenates string literals at compile time.
 const ZString EARTH_VERTEX_SHADER = SHADER_PREFIX +++ `in vec3 vertexPosition;
 uniform mat4 mvp;
 uniform mat4 matModel;
