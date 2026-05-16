@@ -2,8 +2,10 @@ module main;
 import raylib6::rl;
 import std;
 
-const String EARTH_TEXTURE          =  "resources/img/earth_4k_quant.png";
+const String EARTH_TEXTURE          =  "resources/img/earth.png";
 const String STARMAP_TEXTURE        =  "resources/img/starmap.png";
+// Downloaded from https://www.solarsystemscope.com/textures
+
 const float EARTH_RADIUS            =  3.0f;
 const float CAMERA_SETTLE_THRESHOLD =  0.5f * rl::DEG2RAD;
 const float CAMERA_LERP_SPEED       =  10.0f;
@@ -234,7 +236,7 @@ fn void main()
 			// Declination formula using the same day angle
 			float b           = 2.0f * (float)math::PI * (n - 81.0f) / 365.0f;
 			float declination = 23.45f * rl::DEG2RAD * math::sin(b);
-			sun_pos_cache = { 1000.0f * math::cos(declination) * math::cos(sun_yaw), 1000.0f * math::sin(declination), 1000.0f * math::cos(declination) * math::sin(sun_yaw) };
+			sun_pos_cache = { math::cos(declination) * math::cos(sun_yaw), math::sin(declination), math::cos(declination) * math::sin(sun_yaw) };
 			last_sun_update = rl::get_time();
 		}
 		shader.set_value(sun_pos_loc, &sun_pos_cache, VEC3);
@@ -301,9 +303,10 @@ fn void main()
 
 // //////////////// Shaders
 
-const ZString EARTH_VERTEX_SHADER @if(env::EMSCRIPTEN) = `#version 300 es
-precision highp float;
-in vec3 vertexPosition;
+const String SHADER_PREFIX @if(env::EMSCRIPTEN)  = "#version 300 es\nprecision highp float;\n";
+const String SHADER_PREFIX @if(!env::EMSCRIPTEN) = "#version 330\n";
+
+const ZString EARTH_VERTEX_SHADER = SHADER_PREFIX +++ `in vec3 vertexPosition;
 uniform mat4 mvp;
 uniform mat4 matModel;
 out vec3 fragPos;
@@ -313,46 +316,7 @@ void main() {
 }
 `;
 
-const ZString EARTH_FRAGMENT_SHADER @if(env::EMSCRIPTEN) = `#version 300 es
-precision highp float;
-in vec3 fragPos;
-uniform sampler2D texture0;
-uniform vec3 sunPos;
-uniform int isSkybox;
-uniform float sunFade;
-out vec4 finalColor;
-const float PI = radians(180.0);
-void main() {
-    vec3 p = normalize(fragPos);
-    vec2 uv = vec2(0.5 + atan(p.x, p.z) / (2.0 * PI), 0.5 - asin(p.y) / PI);
-    vec4 tex = texture(texture0, uv);
-    vec3 lightDir = normalize(sunPos);
-    if (isSkybox != 0) {
-        float angle = dot(p, lightDir);
-        float sunEffect = smoothstep(0.9995, 1.0, angle);
-        vec3 sunColor = vec3(1.0, 0.96, 0.7) * sunEffect * 1.5 * sunFade;
-        finalColor = vec4(tex.rgb + sunColor, 1.0);
-        return;
-    }
-    float diff = max(dot(p, lightDir), 0.05);
-    float finalDiff = mix(1.0, diff, sunFade);
-    finalColor = vec4(tex.rgb * finalDiff, 1.0);
-}
-`;
-
-const ZString EARTH_VERTEX_SHADER @if(!env::EMSCRIPTEN) = `#version 330
-in vec3 vertexPosition;
-uniform mat4 mvp;
-uniform mat4 matModel;
-out vec3 fragPos;
-void main() {
-    fragPos = (matModel * vec4(vertexPosition, 1.0)).xyz;
-    gl_Position = mvp * vec4(vertexPosition, 1.0);
-}
-`;
-
-const ZString EARTH_FRAGMENT_SHADER @if(!env::EMSCRIPTEN) = `#version 330
-in vec3 fragPos;
+const ZString EARTH_FRAGMENT_SHADER = SHADER_PREFIX +++ `in vec3 fragPos;
 uniform sampler2D texture0;
 uniform vec3 sunPos;
 uniform int isSkybox;
@@ -363,15 +327,14 @@ void main() {
     vec3 p = normalize(fragPos);
     vec2 uv = vec2(0.5 + atan(p.x, p.z) / (2.0 * PI), 0.5 - asin(p.y) / PI);
     vec4 tex = texture(texture0, uv);
-    vec3 lightDir = normalize(sunPos);
     if (isSkybox != 0) {
-        float angle = dot(p, lightDir);
+        float angle = dot(p, sunPos);
         float sunEffect = smoothstep(0.9995, 1.0, angle);
         vec3 sunColor = vec3(1.0, 0.96, 0.7) * sunEffect * 1.5 * sunFade;
         finalColor = vec4(tex.rgb + sunColor, 1.0);
         return;
     }
-    float diff = max(dot(p, lightDir), 0.2);
+    float diff = max(dot(p, sunPos), 0.05);
     float finalDiff = mix(1.0, diff, sunFade);
     finalColor = vec4(tex.rgb * finalDiff, 1.0);
 }
